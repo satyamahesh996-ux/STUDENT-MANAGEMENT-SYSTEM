@@ -1,436 +1,269 @@
-// =========================================================
-// STATE & DOM ELEMENTS
-// =========================================================
 let allStudents = [];
 
-const pageTitle = document.getElementById("pageTitle");
-const pageDescription = document.getElementById("pageDescription");
-const studentModal = document.getElementById("studentModal");
-const studentForm = document.getElementById("studentForm");
-const notification = document.getElementById("notification");
-
-const pageMetadata = {
-  dashboard: {
-    title: "Dashboard",
-    description: "Overview of your student management system",
-  },
-  students: {
-    title: "Student Records",
-    description: "Add, edit, search and manage student records",
-  },
-  academic: {
-    title: "Academic Overview",
-    description: "Student distribution by department and year",
-  },
-  settings: {
-    title: "System Settings",
-    description: "Manage application preferences",
-  },
-};
-
-// =========================================================
-// INITIALIZATION
-// =========================================================
-document.addEventListener("DOMContentLoaded", () => {
-  setupNavigation();
-  setupEventListeners();
-  loadDashboardData();
-  loadStudents();
-  loadAcademicData();
-
-  // Load Dark Mode state from LocalStorage
-  if (localStorage.getItem("theme") === "dark") {
-    document.body.classList.add("dark-mode");
-  }
+// Initialize Dashboard
+document.addEventListener('DOMContentLoaded', () => {
+    fetchStudents();
 });
 
-// =========================================================
-// NAVIGATION & PAGE SWITCHING
-// =========================================================
-function setupNavigation() {
-  const navButtons = document.querySelectorAll(".nav-item");
+// Page Navigation
+function switchPage(pageId, element) {
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
 
-  navButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const targetPage = button.getAttribute("data-page");
-      showPage(targetPage);
+    document.getElementById(`page-${pageId}`).classList.add('active');
+    if (element) element.classList.add('active');
+
+    // Title Updates
+    const titles = {
+        dashboard: { title: 'Dashboard', sub: 'System overview and key analytics' },
+        students: { title: 'Students Directory', sub: 'Manage and search student records' },
+        academics: { title: 'Academics Analytics', sub: 'Departmental breakdown and trends' },
+        settings: { title: 'System Settings', sub: 'Preferences and application info' }
+    };
+
+    if (titles[pageId]) {
+        document.getElementById('pageTitle').innerText = titles[pageId].title;
+        document.getElementById('pageSubtitle').innerText = titles[pageId].sub;
+    }
+
+    // Close Mobile Nav if open
+    document.getElementById('sidebarNav').classList.remove('mobile-open');
+}
+
+// Fetch Students from API
+async function fetchStudents() {
+    try {
+        const response = await fetch('/api/students');
+        if (!response.ok) throw new Error('Failed to fetch students');
+        
+        allStudents = await response.json();
+        renderDashboard();
+        renderStudentTable(allStudents);
+        renderAcademics();
+    } catch (err) {
+        showNotification(err.message, 'error');
+    }
+}
+
+// Render Dashboard Data
+function renderDashboard() {
+    document.getElementById('dash-total-students').innerText = allStudents.length;
+    
+    const depts = new Set(allStudents.map(s => s.department)).size;
+    document.getElementById('dash-total-depts').innerText = depts;
+
+    const avgAge = allStudents.length > 0 
+        ? (allStudents.reduce((acc, s) => acc + Number(s.age || 0), 0) / allStudents.length).toFixed(1)
+        : 0;
+    document.getElementById('dash-avg-age').innerText = avgAge;
+
+    // Recent 5 Students
+    const recent = [...allStudents].reverse().slice(0, 5);
+    const tbody = document.getElementById('dashRecentTable');
+    tbody.innerHTML = recent.length === 0 
+        ? `<tr><td colspan="5" class="empty-msg">No students registered yet.</td></tr>`
+        : recent.map(s => `
+            <tr>
+                <td><strong>${s.student_id}</strong></td>
+                <td>${s.name}</td>
+                <td><span class="badge dept">${s.department}</span></td>
+                <td>${s.year}</td>
+                <td>${s.email || '-'}</td>
+            </tr>
+        `).join('');
+}
+
+// Render Full Student Table
+function renderStudentTable(students) {
+    const tbody = document.getElementById('studentTableBody');
+    tbody.innerHTML = students.length === 0 
+        ? `<tr><td colspan="8" class="empty-msg">No records found.</td></tr>`
+        : students.map(s => `
+            <tr>
+                <td><strong>${s.student_id}</strong></td>
+                <td>${s.name}</td>
+                <td>${s.age}</td>
+                <td>${s.gender}</td>
+                <td><span class="badge dept">${s.department}</span></td>
+                <td>${s.year}</td>
+                <td>${s.email || s.phone || '-'}</td>
+                <td class="action-cell">
+                    <button class="action-btn" onclick="editStudent('${s.id}')" title="Edit">✏️</button>
+                    <button class="action-btn" onclick="deleteStudent('${s.id}')" title="Delete">🗑️</button>
+                </td>
+            </tr>
+        `).join('');
+}
+
+// Render Academics Progress Bars
+function renderAcademics() {
+    const container = document.getElementById('deptProgressContainer');
+    if (allStudents.length === 0) {
+        container.innerHTML = `<p class="empty-msg">No student data available.</p>`;
+        return;
+    }
+
+    const counts = {};
+    allStudents.forEach(s => {
+        counts[s.department] = (counts[s.department] || 0) + 1;
     });
-  });
-}
 
-function showPage(pageId) {
-  // Update sidebar active states
-  document.querySelectorAll(".nav-item").forEach((btn) => {
-    btn.classList.toggle(
-      "active",
-      btn.getAttribute("data-page") === pageId
-    );
-  });
-
-  // Update page view visibility
-  document.querySelectorAll(".page").forEach((section) => {
-    section.classList.remove("active");
-  });
-
-  const targetSection = document.getElementById(`${pageId}Page`);
-  if (targetSection) {
-    targetSection.classList.add("active");
-  }
-
-  // Update Header Metadata
-  if (pageMetadata[pageId]) {
-    pageTitle.textContent = pageMetadata[pageId].title;
-    pageDescription.textContent = pageMetadata[pageId].description;
-  }
-
-  // Refresh data on navigation
-  if (pageId === "dashboard") loadDashboardData();
-  if (pageId === "students") loadStudents();
-  if (pageId === "academic") loadAcademicData();
-}
-
-// =========================================================
-// EVENT LISTENERS
-// =========================================================
-function setupEventListeners() {
-  // Form submission (Add / Edit)
-  studentForm.addEventListener("submit", handleFormSubmit);
-
-  // Search and Filter Listeners
-  document
-    .getElementById("searchInput")
-    ?.addEventListener("input", filterStudents);
-  document
-    .getElementById("departmentFilter")
-    ?.addEventListener("change", filterStudents);
-  document
-    .getElementById("yearFilter")
-    ?.addEventListener("change", filterStudents);
-
-  // Dark mode button
-  document
-    .getElementById("darkModeBtn")
-    ?.addEventListener("click", toggleDarkMode);
-}
-
-// =========================================================
-// API DATA FETCHING & RENDERING
-// =========================================================
-
-// Load Dashboard Cards and Recent Students
-async function loadDashboardData() {
-  try {
-    const res = await fetch("/api/dashboard");
-    const data = await res.json();
-
-    document.getElementById("totalStudents").textContent = data.total || 0;
-    document.getElementById("maleStudents").textContent = data.male || 0;
-    document.getElementById("femaleStudents").textContent = data.female || 0;
-    document.getElementById("departmentCount").textContent =
-      data.departments || 0;
-
-    renderRecentStudents(data.recent || []);
-  } catch (err) {
-    showNotification("Failed to fetch dashboard data", "error");
-  }
-}
-
-function renderRecentStudents(recentList) {
-  const tbody = document.getElementById("recentStudents");
-  if (!tbody) return;
-
-  if (recentList.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-msg">No recent student records found.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = recentList
-    .map(
-      (stu) => `
-        <tr>
-            <td><strong>${escapeHtml(stu.student_id)}</strong></td>
-            <td>${escapeHtml(stu.name)}</td>
-            <td><span class="badge dept">${escapeHtml(stu.department || "N/A")}</span></td>
-            <td>${escapeHtml(stu.year || "N/A")}</td>
-            <td>${escapeHtml(stu.gender || "N/A")}</td>
-        </tr>
-    `
-    )
-    .join("");
-}
-
-// Load Main Students Table
-async function loadStudents() {
-  try {
-    const res = await fetch("/api/students");
-    allStudents = await res.json();
-    filterStudents();
-  } catch (err) {
-    showNotification("Failed to fetch student list", "error");
-  }
-}
-
-function renderStudentsTable(students) {
-  const tbody = document.getElementById("studentTable");
-  if (!tbody) return;
-
-  if (students.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">No students found matching your criteria.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = students
-    .map(
-      (stu, index) => `
-        <tr>
-            <td>${index + 1}</td>
-            <td><strong>${escapeHtml(stu.student_id)}</strong></td>
-            <td>${escapeHtml(stu.name)}</td>
-            <td>${stu.age || "N/A"}</td>
-            <td>${escapeHtml(stu.gender || "N/A")}</td>
-            <td><span class="badge dept">${escapeHtml(stu.department || "N/A")}</span></td>
-            <td><span class="badge year">${escapeHtml(stu.year || "N/A")}</span></td>
-            <td>${escapeHtml(stu.email || "N/A")}</td>
-            <td>${escapeHtml(stu.phone || "N/A")}</td>
-            <td class="action-cells">
-                <button class="btn-icon edit" onclick="editStudent(${stu.id})" title="Edit">✏️</button>
-                <button class="btn-icon delete" onclick="deleteStudent(${stu.id})" title="Delete">🗑️</button>
-            </td>
-        </tr>
-    `
-    )
-    .join("");
-}
-
-// Search and Filter Logic
-function filterStudents() {
-  const query = document
-    .getElementById("searchInput")
-    ?.value.toLowerCase()
-    .trim();
-  const deptFilter = document.getElementById("departmentFilter")?.value;
-  const yearFilter = document.getElementById("yearFilter")?.value;
-
-  const filtered = allStudents.filter((stu) => {
-    const matchesQuery =
-      !query ||
-      stu.student_id.toLowerCase().includes(query) ||
-      stu.name.toLowerCase().includes(query) ||
-      (stu.department && stu.department.toLowerCase().includes(query)) ||
-      (stu.email && stu.email.toLowerCase().includes(query));
-
-    const matchesDept = !deptFilter || stu.department === deptFilter;
-    const matchesYear = !yearFilter || stu.year === yearFilter;
-
-    return matchesQuery && matchesDept && matchesYear;
-  });
-
-  renderStudentsTable(filtered);
-}
-
-// Load Academic Tab Statistics
-async function loadAcademicData() {
-  try {
-    const res = await fetch("/api/academic");
-    const data = await res.json();
-
-    document.getElementById("academicTotal").textContent = data.total || 0;
-    document.getElementById("academicDepartments").textContent =
-      Object.keys(data.departments || {}).length;
-    document.getElementById("academicYears").textContent = Object.keys(
-      data.years || {}
-    ).length;
-
-    renderStatBars("departmentStats", data.departments, data.total);
-    renderStatBars("yearStats", data.years, data.total);
-  } catch (err) {
-    showNotification("Failed to fetch academic analytics", "error");
-  }
-}
-
-function renderStatBars(elementId, statsObj, total) {
-  const container = document.getElementById(elementId);
-  if (!container) return;
-
-  if (!statsObj || Object.keys(statsObj).length === 0 || total === 0) {
-    container.innerHTML = `<p class="empty-msg">No statistics available yet.</p>`;
-    return;
-  }
-
-  container.innerHTML = Object.entries(statsObj)
-    .map(([key, count]) => {
-      const percentage = Math.round((count / total) * 100);
-      return `
+    container.innerHTML = Object.entries(counts).map(([dept, count]) => {
+        const percent = Math.round((count / allStudents.length) * 100);
+        return `
             <div class="stat-progress-item">
-                <div class="stat-progress-label">
-                    <span>${escapeHtml(key)}</span>
-                    <strong>${count} (${percentage}%)</strong>
+                <div class="stat-progress-header">
+                    <span>${dept}</span>
+                    <strong>${count} (${percent}%)</strong>
                 </div>
-                <div class="progress-bar-bg">
-                    <div class="progress-bar-fill" style="width: ${percentage}%"></div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${percent}%;"></div>
                 </div>
             </div>
         `;
-    })
-    .join("");
+    }).join('');
 }
 
-// =========================================================
-// FORM ACTIONS & MODAL HANDLERS
-// =========================================================
+// Filter Students Function
+function filterStudents() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const dept = document.getElementById('deptFilter').value;
 
+    const filtered = allStudents.filter(s => {
+        const matchesSearch = s.name.toLowerCase().includes(search) ||
+                              s.student_id.toLowerCase().includes(search) ||
+                              (s.email && s.email.toLowerCase().includes(search));
+        const matchesDept = dept === '' || s.department === dept;
+        return matchesSearch && matchesDept;
+    });
+
+    renderStudentTable(filtered);
+}
+
+// Save Student (Create/Update)
+async function saveStudent(e) {
+    e.preventDefault();
+    
+    const dbId = document.getElementById('studentDbId').value;
+    const payload = {
+        student_id: document.getElementById('studentId').value,
+        name: document.getElementById('name').value,
+        age: parseInt(document.getElementById('age').value),
+        gender: document.getElementById('gender').value,
+        department: document.getElementById('department').value,
+        year: document.getElementById('year').value,
+        email: document.getElementById('email').value,
+        phone: document.getElementById('phone').value
+    };
+
+    const url = dbId ? `/api/students/${dbId}` : '/api/students';
+    const method = dbId ? 'PUT' : 'POST';
+
+    try {
+        const res = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) throw new Error('Failed to save student.');
+
+        showNotification(dbId ? 'Student updated successfully!' : 'Student added successfully!', 'success');
+        closeModal();
+        fetchStudents();
+    } catch (err) {
+        showNotification(err.message, 'error');
+    }
+}
+
+// Edit Student Modal Populate
+function editStudent(id) {
+    const student = allStudents.find(s => s.id == id);
+    if (!student) return;
+
+    document.getElementById('modalTitle').innerText = 'Edit Student';
+    document.getElementById('studentDbId').value = student.id;
+    document.getElementById('studentId').value = student.student_id;
+    document.getElementById('name').value = student.name;
+    document.getElementById('age').value = student.age;
+    document.getElementById('gender').value = student.gender;
+    document.getElementById('department').value = student.department;
+    document.getElementById('year').value = student.year;
+    document.getElementById('email').value = student.email || '';
+    document.getElementById('phone').value = student.phone || '';
+
+    openModal();
+}
+
+// Delete Student
+async function deleteStudent(id) {
+    if (!confirm('Are you sure you want to delete this student?')) return;
+
+    try {
+        const res = await fetch(`/api/students/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete student.');
+
+        showNotification('Student record deleted.', 'success');
+        fetchStudents();
+    } catch (err) {
+        showNotification(err.message, 'error');
+    }
+}
+
+// CSV Export
+function exportToCSV() {
+    if (allStudents.length === 0) {
+        showNotification('No student data available to export.', 'error');
+        return;
+    }
+
+    const headers = ["Student ID", "Name", "Age", "Gender", "Department", "Year", "Email", "Phone"];
+    const rows = allStudents.map(s => [
+        `"${s.student_id || ''}"`,
+        `"${s.name || ''}"`,
+        `"${s.age || ''}"`,
+        `"${s.gender || ''}"`,
+        `"${s.department || ''}"`,
+        `"${s.year || ''}"`,
+        `"${s.email || ''}"`,
+        `"${s.phone || ''}"`
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Student_Records_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showNotification('Student records exported successfully!', 'success');
+}
+
+// UI Helpers
 function openModal() {
-  document.getElementById("modalTitle").textContent = "Add Student";
-  document.getElementById("editId").value = "";
-  studentForm.reset();
-  studentModal.classList.add("active");
+    document.getElementById('studentModal').classList.add('active');
 }
 
 function closeModal() {
-  studentModal.classList.remove("active");
-  studentForm.reset();
+    document.getElementById('studentModal').classList.remove('active');
+    document.getElementById('studentForm').reset();
+    document.getElementById('studentDbId').value = '';
+    document.getElementById('modalTitle').innerText = 'Add New Student';
 }
 
-async function handleFormSubmit(e) {
-  e.preventDefault();
-
-  const editId = document.getElementById("editId").value;
-
-  const payload = {
-    student_id: document.getElementById("student_id").value.trim(),
-    name: document.getElementById("name").value.trim(),
-    age: document.getElementById("age").value
-      ? parseInt(document.getElementById("age").value)
-      : null,
-    gender: document.getElementById("gender").value,
-    department: document.getElementById("department").value,
-    year: document.getElementById("year").value,
-    email: document.getElementById("email").value.trim(),
-    phone: document.getElementById("phone").value.trim(),
-  };
-
-  const url = editId ? `/api/students/${editId}` : "/api/students";
-  const method = editId ? "PUT" : "POST";
-
-  try {
-    const res = await fetch(url, {
-      method: method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      showNotification(data.error || "Failed to save record", "error");
-      return;
-    }
-
-    showNotification(data.message || "Student saved successfully!", "success");
-    closeModal();
-    loadStudents();
-    loadDashboardData();
-  } catch (err) {
-    showNotification("An unexpected error occurred.", "error");
-  }
+function toggleTheme() {
+    document.body.classList.toggle('dark-theme');
 }
 
-async function editStudent(id) {
-  try {
-    const res = await fetch(`/api/students/${id}`);
-    const data = await res.json();
-
-    if (!res.ok) {
-      showNotification("Could not load student details", "error");
-      return;
-    }
-
-    document.getElementById("modalTitle").textContent = "Edit Student";
-    document.getElementById("editId").value = data.id;
-    document.getElementById("student_id").value = data.student_id || "";
-    document.getElementById("name").value = data.name || "";
-    document.getElementById("age").value = data.age || "";
-    document.getElementById("gender").value = data.gender || "";
-    document.getElementById("department").value = data.department || "";
-    document.getElementById("year").value = data.year || "";
-    document.getElementById("email").value = data.email || "";
-    document.getElementById("phone").value = data.phone || "";
-
-    studentModal.classList.add("active");
-  } catch (err) {
-    showNotification("Failed to load student data", "error");
-  }
+function toggleMobileNav() {
+    document.getElementById('sidebarNav').classList.toggle('mobile-open');
 }
 
-async function deleteStudent(id) {
-  if (!confirm("Are you sure you want to delete this student?")) return;
-
-  try {
-    const res = await fetch(`/api/students/${id}`, { method: "DELETE" });
-    const data = await res.json();
-
-    if (res.ok) {
-      showNotification(data.message, "success");
-      loadStudents();
-      loadDashboardData();
-    } else {
-      showNotification(data.error || "Failed to delete student", "error");
-    }
-  } catch (err) {
-    showNotification("Server error during deletion", "error");
-  }
-}
-
-async function clearAllStudents() {
-  if (
-    !confirm(
-      "⚠️ WARNING: This will permanently delete ALL student records from the database. Are you sure?"
-    )
-  )
-    return;
-
-  try {
-    const res = await fetch("/api/students/clear", { method: "DELETE" });
-    const data = await res.json();
-
-    if (res.ok) {
-      showNotification("All student records cleared!", "success");
-      loadStudents();
-      loadDashboardData();
-      loadAcademicData();
-    } else {
-      showNotification(data.error || "Failed to clear records", "error");
-    }
-  } catch (err) {
-    showNotification("Server error while clearing data", "error");
-  }
-}
-
-// =========================================================
-// UTILITIES & THEME TOGGLE
-// =========================================================
-function toggleDarkMode() {
-  document.body.classList.toggle("dark-mode");
-  const isDark = document.body.classList.contains("dark-mode");
-  localStorage.setItem("theme", isDark ? "dark" : "light");
-}
-
-function showNotification(msg, type = "success") {
-  if (!notification) return;
-
-  notification.textContent = msg;
-  notification.className = `show ${type}`;
-
-  setTimeout(() => {
-    notification.className = "";
-  }, 3500);
-}
-
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function showNotification(msg, type = 'success') {
+    const toast = document.getElementById('notification');
+    toast.innerText = msg;
+    toast.className = `show ${type}`;
+    setTimeout(() => { toast.className = toast.className.replace('show', ''); }, 3000);
 }
